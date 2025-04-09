@@ -1,43 +1,17 @@
 <?php
 require_once 'config.php';
 
-// Fetch topics for dropdown
-$stmt = $pdo->query("SELECT topics.id, topics.topic_name, chapters.chapter_name, subjects.subject_name, classes.class_name 
-                     FROM topics 
-                     JOIN chapters ON topics.chapter_id = chapters.id 
-                     JOIN subjects ON chapters.subject_id = subjects.id 
-                     JOIN classes ON subjects.class_id = classes.id");
-$topics = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$selected_mcqs = $_POST['selected_mcqs'] ?? [];
 
-// Handle form submission
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $selected_topics = isset($_POST['topics']) ? $_POST['topics'] : [];
-    $num_questions = isset($_POST['num_questions']) ? intval($_POST['num_questions']) : 0;
-
-    // Fetch MCQs for selected topics
-    if (!empty($selected_topics) && $num_questions > 0) {
-        $placeholders = implode(',', array_fill(0, count($selected_topics), '?'));
-        $sql = "SELECT * FROM mcqs WHERE topic_id IN ($placeholders) ORDER BY RAND() LIMIT ?";
-        $stmt = $pdo->prepare($sql);
-        
-        // Combine selected topics and num_questions into a single array
-        $params = array_merge($selected_topics, [$num_questions]);
-        
-        $stmt->execute($params);
-        $mcqs = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        // Generate question paper
-        $question_paper = "<h1>Generated Question Paper</h1>";
-        foreach ($mcqs as $index => $mcq) {
-            $question_paper .= "<p><strong>Q" . ($index + 1) . ". " . htmlspecialchars($mcq['question']) . "</strong></p>";
-            $question_paper .= "<p>A. " . htmlspecialchars($mcq['option_a']) . "</p>";
-            $question_paper .= "<p>B. " . htmlspecialchars($mcq['option_b']) . "</p>";
-            $question_paper .= "<p>C. " . htmlspecialchars($mcq['option_c']) . "</p>";
-            $question_paper .= "<p>D. " . htmlspecialchars($mcq['option_d']) . "</p>";
-        }
-    } else {
-        $error_message = "Please select at least one topic and enter a valid number of questions.";
-    }
+if (!empty($selected_mcqs)) {
+    // Fetch selected MCQs from the database
+    $placeholders = implode(',', array_fill(0, count($selected_mcqs), '?'));
+    $sql = "SELECT mcqs.question, mcqs.option_a, mcqs.option_b, mcqs.option_c, mcqs.option_d 
+            FROM mcqs
+            WHERE mcqs.id IN ($placeholders)";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($selected_mcqs);
+    $mcqs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 ?>
 
@@ -46,44 +20,136 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generate Question Paper</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Question Paper</title>
+    <style>
+        /* Ensure A4 page size */
+        @page {
+            size: A4;
+            margin: 20mm;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 10px; /* Make text small enough to fit more questions */
+            line-height: 1.2;
+            margin: 0;
+        }
+
+        /* Grid layout with two columns */
+        .question-paper {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 2 columns */
+            column-gap: 30px; /* Space between columns */
+        }
+
+        .column {
+            padding-right: 10px;
+        }
+
+        .question {
+            margin-bottom: 15px; /* Space after each question */
+            padding-bottom: 5px; /* Padding at the bottom of each question */
+            border-bottom: 1px solid transparent; /* Invisible line for spacing */
+        }
+
+        .options {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 5px; /* Space between question and options */
+        }
+
+        .options div {
+            width: 48%; /* Ensure options fit horizontally in one line */
+        }
+
+        /* Adjust row height dynamically to ensure questions fit nicely */
+        .column .question {
+            height: auto; /* Let questions adjust to their content */
+        }
+
+        /* Print-friendly styles */
+        @media print {
+            .page-break {
+                page-break-after: always; /* Ensure page breaks after each set of questions */
+            }
+        }
+    </style>
 </head>
 <body>
-    <?php include 'navbar.php'; ?>
+    <div class="container">
+        <h1 style="text-align: center;">Question Paper</h1>
 
-    <div class="container mt-4">
-        <h1>Generate Question Paper</h1>
-        <?php if (isset($error_message)): ?>
-            <div class="alert alert-danger" role="alert">
-                <?php echo $error_message; ?>
-            </div>
-        <?php endif; ?>
-        <form method="POST" action="">
-            <div class="mb-3">
-                <label for="topics" class="form-label">Select Topics</label>
-                <select class="form-select" id="topics" name="topics[]" multiple required>
-                    <?php foreach ($topics as $topic): ?>
-                        <option value="<?php echo $topic['id']; ?>">
-                            <?php echo "{$topic['class_name']} - {$topic['subject_name']} - {$topic['chapter_name']} - {$topic['topic_name']}"; ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="mb-3">
-                <label for="num_questions" class="form-label">Number of Questions</label>
-                <input type="number" class="form-control" id="num_questions" name="num_questions" required min="1">
-            </div>
-            <button type="submit" class="btn btn-primary">Generate Paper</button>
-        </form>
+        <?php if (!empty($mcqs)): ?>
+            <?php
+            $questions_per_page = 24; // You can set a limit on how many questions you want to print
+            $total_mcqs = count($mcqs);
+            $pages = ceil($total_mcqs / $questions_per_page);
+            ?>
 
-        <?php if (isset($question_paper)): ?>
-            <div class="mt-4">
-                <?php echo $question_paper; ?>
-            </div>
+            <?php for ($page = 0; $page < $pages; $page++): ?>
+                <div class="question-paper">
+                    <div class="left-column column">
+                        <?php
+                        // Slice for the first column
+                        $start = $page * $questions_per_page;
+                        $end = $start + 12; // First half of questions (12)
+                        $left_mcqs = array_slice($mcqs, $start, 12);
+
+                        foreach ($left_mcqs as $index => $mcq):
+                        ?>
+                            <div class="question">
+                                <div class="question-number">
+                                    <strong>Q<?php echo $start + $index + 1; ?>:</strong>
+                                    <?php echo htmlspecialchars($mcq['question']); ?>
+                                </div>
+                                <div class="options">
+                                    <div>A. <?php echo htmlspecialchars($mcq['option_a']); ?></div>
+                                    <div>B. <?php echo htmlspecialchars($mcq['option_b']); ?></div>
+                                </div>
+                                <div class="options">
+                                    <div>C. <?php echo htmlspecialchars($mcq['option_c']); ?></div>
+                                    <div>D. <?php echo htmlspecialchars($mcq['option_d']); ?></div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <div class="right-column column">
+                        <?php
+                        // Slice for the second column
+                        $right_mcqs = array_slice($mcqs, $end, 12); // Next 12 questions
+
+                        foreach ($right_mcqs as $index => $mcq):
+                        ?>
+                            <div class="question">
+                                <div class="question-number">
+                                    <strong>Q<?php echo $end + $index + 1; ?>:</strong>
+                                    <?php echo htmlspecialchars($mcq['question']); ?>
+                                </div>
+                                <div class="options">
+                                    <div>A. <?php echo htmlspecialchars($mcq['option_a']); ?></div>
+                                    <div>B. <?php echo htmlspecialchars($mcq['option_b']); ?></div>
+                                </div>
+                                <div class="options">
+                                    <div>C. <?php echo htmlspecialchars($mcq['option_c']); ?></div>
+                                    <div>D. <?php echo htmlspecialchars($mcq['option_d']); ?></div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <?php if ($page < $pages - 1): ?>
+                    <div class="page-break"></div> <!-- Insert page break after each page -->
+                <?php endif; ?>
+            <?php endfor; ?>
+        <?php else: ?>
+            <p>No questions selected.</p>
         <?php endif; ?>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        window.print(); // Automatically trigger print when the page loads
+    </script>
 </body>
 </html>
